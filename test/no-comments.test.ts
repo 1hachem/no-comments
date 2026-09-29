@@ -8,7 +8,7 @@ import {
 	strip,
 	suggestions,
 	type Suggestion,
-} from '../src/check-comments.ts';
+} from '../src/no-comments.ts';
 
 const DIRECTIVES = [
 	/^\/\/\/\s*<reference/,

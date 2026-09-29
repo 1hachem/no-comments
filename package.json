@@ -1,12 +1,12 @@
 {
-	"name": "check-comments-action",
+	"name": "no-comments-action",
 	"version": "1.0.0",
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"build": "esbuild src/check-comments.ts --bundle --platform=node --format=cjs --target=node20 --outfile=dist/check-comments.cjs",
-		"test": "CHECK_COMMENTS_LIB=1 node --test test/*.test.ts",
-		"check": "node dist/check-comments.cjs"
+		"build": "esbuild src/no-comments.ts --bundle --platform=node --format=cjs --target=node20 --outfile=dist/no-comments.cjs",
+		"test": "NO_COMMENTS_LIB=1 node --test test/*.test.ts",
+		"check": "node dist/no-comments.cjs"
 	},
 	"devDependencies": {
 		"esbuild": "^0.25.0",

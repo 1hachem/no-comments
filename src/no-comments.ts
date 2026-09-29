@@ -16,7 +16,7 @@ const DEFAULT_DIRECTIVES = [
 	/^\/\/\s*eslint-disable/,
 ];
 
-const MARKER = '<!-- check-comments -->';
+const MARKER = '<!-- no-comments -->';
 
 export interface Found {
 	pos: number;
@@ -584,7 +584,7 @@ async function main(): Promise<void> {
 	if (failOnViolations) process.exit(1);
 }
 
-if (process.env.CHECK_COMMENTS_LIB !== '1') {
+if (process.env.NO_COMMENTS_LIB !== '1') {
 	main().catch((err) => {
 		process.stderr.write(`${err instanceof Error ? err.stack : String(err)}\n`);
 		process.exit(2);

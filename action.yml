@@ -59,7 +59,7 @@ runs:
   using: 'composite'
   steps:
     - id: check
-      run: node "$GITHUB_ACTION_PATH/dist/check-comments.cjs"
+      run: node "$GITHUB_ACTION_PATH/dist/no-comments.cjs"
       shell: bash
       env:
         INPUT_EXTENSIONS: ${{ inputs.extensions }}

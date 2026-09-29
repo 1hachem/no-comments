@@ -210770,9 +210770,9 @@ Additional information: BADCLIENT: Bad error code, ${badCode} not found in range
   }
 });
 
-// src/check-comments.ts
-var check_comments_exports = {};
-__export(check_comments_exports, {
+// src/no-comments.ts
+var no_comments_exports = {};
+__export(no_comments_exports, {
   diffLines: () => diffLines,
   findComments: () => findComments,
   findCssComments: () => findCssComments,
@@ -210782,7 +210782,7 @@ __export(check_comments_exports, {
   suggestions: () => suggestions,
   tracked: () => tracked
 });
-module.exports = __toCommonJS(check_comments_exports);
+module.exports = __toCommonJS(no_comments_exports);
 var import_node_child_process = require("node:child_process");
 var import_node_fs = require("node:fs");
 var import_typescript = __toESM(require_typescript(), 1);
@@ -210799,7 +210799,7 @@ var DEFAULT_DIRECTIVES = [
   /^\/\*\s*eslint-disable/,
   /^\/\/\s*eslint-disable/
 ];
-var MARKER = "<!-- check-comments -->";
+var MARKER = "<!-- no-comments -->";
 function input(name) {
   const key = `INPUT_${name.toUpperCase().replace(/-/g, "_")}`;
   return (process.env[key] ?? "").trim();
@@ -211273,7 +211273,7 @@ async function main() {
   process.stderr.write("`fix: true` to strip them, or `suggest: true` to review them inline.\n");
   if (failOnViolations) process.exit(1);
 }
-if (process.env.CHECK_COMMENTS_LIB !== "1") {
+if (process.env.NO_COMMENTS_LIB !== "1") {
   main().catch((err) => {
     process.stderr.write(`${err instanceof Error ? err.stack : String(err)}
 `);

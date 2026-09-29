@@ -8,7 +8,7 @@ real it belongs in a name, a type or a test, where it cannot drift out of date.
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: 1hachem/check-comments@v1
+- uses: 1hachem/no-comments@v1
 ```
 
 ## Why an AST and not a grep
@@ -42,7 +42,7 @@ permissions:
 
 steps:
   - uses: actions/checkout@v4
-  - uses: 1hachem/check-comments@v1
+  - uses: 1hachem/no-comments@v1
     with:
       suggest: true
 ```
