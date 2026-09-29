@@ -1,0 +1,59 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm test
+
+  dist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run build
+      - name: dist/ is in sync with src/
+        run: |
+          if ! git diff --exit-code --stat dist/; then
+            echo "::error::dist/ is stale. Run \`npm run build\` and commit the result."
+            exit 1
+          fi
+
+  self:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clean tree passes
+        uses: ./
+        with:
+          ignore: '^test/fixtures/'
+
+      - name: Fixtures are caught
+        id: fixtures
+        uses: ./
+        with:
+          extensions: 'test/fixtures/*.ts test/fixtures/*.tsx test/fixtures/*.astro test/fixtures/*.css'
+          annotations: 'false'
+          fail-on-violations: 'false'
+
+      - name: Every fixture comment was found
+        run: |
+          test "${{ steps.fixtures.outputs.violations }}" = "12" \
+            || { echo "::error::expected 12 violations, got ${{ steps.fixtures.outputs.violations }}"; exit 1; }

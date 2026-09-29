@@ -1,0 +1,29 @@
+---
+const title = 'Home'; // frontmatter comment
+// a whole line in the frontmatter
+const n = 1;
+---
+
+<!-- a markup comment -->
+<div title="<!-- not a comment -->">
+	{/* a jsx comment in markup */}
+	<h1>{title}{n}</h1>
+</div>
+
+<style>
+	.a {
+		color: red; /* a style comment */
+	}
+</style>
+
+<script>
+	const x = 1; // a script comment
+</script>
+
+<script is:raw>
+	// this one is raw and must be left alone
+</script>
+
+<script type="application/json">
+	{ "note": "json has no comments" }
+</script>

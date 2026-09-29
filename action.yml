@@ -1,0 +1,73 @@
+name: 'No Comments'
+description: 'Fail CI on comments in TypeScript, TSX, Astro and CSS, with inline PR suggestions that remove them.'
+author: '1hachem'
+
+branding:
+  icon: 'message-square'
+  color: 'purple'
+
+inputs:
+  extensions:
+    description: 'Space separated git pathspecs to scan.'
+    required: false
+    default: '*.ts *.tsx *.astro *.css'
+  ignore:
+    description: 'Newline or comma separated regular expressions; a tracked path matching any of them is skipped.'
+    required: false
+    default: ''
+  allow:
+    description: 'Newline or comma separated regular expressions matched against a comment; a hit is permitted. Added to the built-in tooling directives.'
+    required: false
+    default: ''
+  fix:
+    description: 'Strip the offending comments in place instead of reporting them. Mutually exclusive with suggest.'
+    required: false
+    default: 'false'
+  suggest:
+    description: 'Post the strip result as review suggestions on the pull request instead of rewriting files. Needs pull-requests write permission.'
+    required: false
+    default: 'false'
+  token:
+    description: 'Token used to post suggestions.'
+    required: false
+    default: ${{ github.token }}
+  annotations:
+    description: 'Emit ::error annotations so offenders show up inline on the diff.'
+    required: false
+    default: 'true'
+  fail-on-violations:
+    description: 'Exit non-zero when comments are found. Set false to adopt the check in warn-only mode.'
+    required: false
+    default: 'true'
+  working-directory:
+    description: 'Directory to run the check from.'
+    required: false
+    default: '.'
+
+outputs:
+  violations:
+    description: 'Number of comments found.'
+    value: ${{ steps.check.outputs.violations }}
+  files:
+    description: 'Number of files scanned.'
+    value: ${{ steps.check.outputs.files }}
+  suggestions:
+    description: 'Number of review suggestions posted.'
+    value: ${{ steps.check.outputs.suggestions }}
+
+runs:
+  using: 'composite'
+  steps:
+    - id: check
+      run: node "$GITHUB_ACTION_PATH/dist/check-comments.cjs"
+      shell: bash
+      env:
+        INPUT_EXTENSIONS: ${{ inputs.extensions }}
+        INPUT_IGNORE: ${{ inputs.ignore }}
+        INPUT_ALLOW: ${{ inputs.allow }}
+        INPUT_FIX: ${{ inputs.fix }}
+        INPUT_SUGGEST: ${{ inputs.suggest }}
+        INPUT_TOKEN: ${{ inputs.token }}
+        INPUT_ANNOTATIONS: ${{ inputs.annotations }}
+        INPUT_FAIL_ON_VIOLATIONS: ${{ inputs.fail-on-violations }}
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
