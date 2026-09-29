@@ -1,25 +1,41 @@
 name: Release
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
+    paths: ['package.json']
 
 permissions:
   contents: write
 
 jobs:
-  major-tag:
+  release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Move the major tag to this release
+      - id: version
+        name: Read the version and check whether it is already released
         run: |
-          tag="${GITHUB_REF_NAME}"
-          major="${tag%%.*}"
+          tag="v$(node -p "require('./package.json').version")"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "::notice::$tag already exists, nothing to release."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish the release and move the major tag onto it
+        if: steps.version.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --generate-notes
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -fa "$major" -m "Update $major to $tag"
-          git push origin "$major" --force
+          git tag -fa "${TAG%%.*}" -m "Update ${TAG%%.*} to $TAG"
+          git push origin "${TAG%%.*}" --force
