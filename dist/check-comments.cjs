@@ -211174,9 +211174,9 @@ ${fence}`
     comments.push(comment);
   }
   if (unreachable > 0) {
-    const plural = unreachable === 1 ? "" : "s";
+    const subject = unreachable === 1 ? "1 comment sits" : `${unreachable} comments sit`;
     warn(
-      `${unreachable} comment${plural} sit outside this pull request's diff, so no suggestion could be attached. They are reported as annotations.`
+      `${subject} outside this pull request's diff, so no suggestion could be attached. Reported as annotations instead.`
     );
   }
   if (comments.length === 0) return 0;
