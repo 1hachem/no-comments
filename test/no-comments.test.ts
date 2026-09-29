@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import {
 	diffLines,
 	findComments,
+	loadConfig,
+	parseArgv,
 	strip,
 	suggestions,
 	type Suggestion,
@@ -105,4 +108,73 @@ test('diffLines: maps a patch to its right-hand line numbers', () => {
 test('diffLines: handles several hunks', () => {
 	const patch = ['@@ -1,1 +1,1 @@', ' a', '@@ -10,1 +20,2 @@', '+b', ' c'].join('\n');
 	assert.deepEqual([...diffLines(patch)], [1, 20, 21]);
+});
+
+test('parseArgv: a boolean flag needs no value', () => {
+	assert.deepEqual([...parseArgv(['--fix', '--staged'])], [
+		['fix', ['true']],
+		['staged', ['true']],
+	]);
+});
+
+test('parseArgv: --no- negates a boolean flag', () => {
+	assert.deepEqual(parseArgv(['--no-fail-on-violations']).get('fail-on-violations'), ['false']);
+});
+
+test('parseArgv: a value flag takes the next argument or an = form', () => {
+	assert.deepEqual(parseArgv(['--extensions', '*.ts *.tsx']).get('extensions'), ['*.ts *.tsx']);
+	assert.deepEqual(parseArgv(['--extensions=*.css']).get('extensions'), ['*.css']);
+});
+
+test('parseArgv: repeating a flag collects every value', () => {
+	assert.deepEqual(parseArgv(['--ignore', '^a/', '--ignore', '^b/']).get('ignore'), ['^a/', '^b/']);
+});
+
+test('parseArgv: a value flag with nothing after it is an error', () => {
+	assert.throws(() => parseArgv(['--ignore']), /needs a value/);
+});
+
+test('parseArgv: a bare argument is an error', () => {
+	assert.throws(() => parseArgv(['src/']), /Unexpected argument/);
+});
+
+test('loadConfig: no-comments.json wins over the package.json key', () => {
+	const dir = mkdtempSync(join(tmpdir(), 'no-comments-'));
+	const cwd = process.cwd();
+	try {
+		writeFileSync(join(dir, 'package.json'), JSON.stringify({ 'no-comments': { ignore: ['pkg'] } }));
+		writeFileSync(join(dir, 'no-comments.json'), JSON.stringify({ ignore: ['file'] }));
+		process.chdir(dir);
+		assert.deepEqual(loadConfig(), { ignore: ['file'] });
+	} finally {
+		process.chdir(cwd);
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test('loadConfig: falls back to the package.json key, then to nothing', () => {
+	const dir = mkdtempSync(join(tmpdir(), 'no-comments-'));
+	const cwd = process.cwd();
+	try {
+		process.chdir(dir);
+		assert.deepEqual(loadConfig(), {});
+		writeFileSync(join(dir, 'package.json'), JSON.stringify({ 'no-comments': { ignore: ['pkg'] } }));
+		assert.deepEqual(loadConfig(), { ignore: ['pkg'] });
+	} finally {
+		process.chdir(cwd);
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test('loadConfig: malformed JSON names the file', () => {
+	const dir = mkdtempSync(join(tmpdir(), 'no-comments-'));
+	const cwd = process.cwd();
+	try {
+		writeFileSync(join(dir, 'no-comments.json'), '{ nope');
+		process.chdir(dir);
+		assert.throws(() => loadConfig(), /no-comments\.json is not valid JSON/);
+	} finally {
+		process.chdir(cwd);
+		rmSync(dir, { recursive: true, force: true });
+	}
 });

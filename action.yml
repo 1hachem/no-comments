@@ -8,9 +8,9 @@ branding:
 
 inputs:
   extensions:
-    description: 'Space separated git pathspecs to scan.'
+    description: 'Space separated git pathspecs to scan. Defaults to `*.ts *.tsx *.astro *.css`.'
     required: false
-    default: '*.ts *.tsx *.astro *.css'
+    default: ''
   ignore:
     description: 'Newline or comma separated regular expressions; a tracked path matching any of them is skipped.'
     required: false

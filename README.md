@@ -50,6 +50,82 @@ steps:
 **Fix** — strips the comments in place. Useful in a scheduled cleanup job that opens its
 own PR. Mutually exclusive with `suggest`. Run your formatter afterwards to reflow.
 
+## As a git hook
+
+The same binary runs locally, so a hook and CI can share one set of rules. Install it
+straight from the tag:
+
+```sh
+pnpm add -D github:1hachem/no-comments#v1
+```
+
+`--staged` narrows the scan to what is staged for commit, which is what makes a
+pre-commit hook cheap; without it the whole tracked tree is scanned, which is what you
+want on pre-push.
+
+```sh
+no-comments --staged --fix   # strip what you are about to commit
+no-comments                  # check the whole tree, exit 1 on a hit
+no-comments --help
+```
+
+Every input below has a flag of the same name. Booleans need no value and take a `--no-`
+form, and `--ignore`/`--allow` may be repeated:
+
+```sh
+no-comments --extensions '*.ts *.tsx' --ignore '^vendor/' --no-fail-on-violations
+```
+
+### husky
+
+`.husky/pre-commit` — strip and re-stage, so the commit lands clean:
+
+```bash
+mapfile -d '' -t files < <(git diff --cached --name-only --diff-filter=ACMR -z)
+[ "${#files[@]}" -gt 0 ] || exit 0
+pnpm exec no-comments --staged --fix
+git add -- "${files[@]}"
+```
+
+`.husky/pre-push` — the commits already exist, so here it can only report:
+
+```bash
+pnpm exec no-comments
+```
+
+### pre-commit
+
+```yaml
+- repo: local
+  hooks:
+    - id: no-comments
+      name: no-comments
+      entry: pnpm exec no-comments --staged --fix
+      language: system
+      pass_filenames: false
+      files: \.(ts|tsx|astro|css)$
+```
+
+`pass_filenames: false` matters: the tool finds its own files through git, and passing
+paths as bare arguments is an error.
+
+## Configuration
+
+Flags and `with:` are fine for one-offs, but a hook, CI and a manual run should agree.
+Put the shared rules in `no-comments.json` at the repo root:
+
+```json
+{
+  "extensions": ["*.ts", "*.tsx"],
+  "ignore": ["routeTree\\.gen\\.ts$", "/_generated/"],
+  "allow": ["^//\\s*@boundaries-ignore\\b"]
+}
+```
+
+A `"no-comments"` key in `package.json` works the same way. Precedence is **flag > action
+input > config file > built-in default**, so CI can still override a single rule with
+`with:` without the config file drifting from what runs locally.
+
 ## Inputs
 
 | Input | Default | Description |
@@ -110,8 +186,10 @@ with:
 
 ## Known limits
 
-- Only tracked files are scanned — it runs `git ls-files`, so `actions/checkout` must run
-  first.
+- Only tracked files are scanned — it runs `git ls-files` (or `git diff --cached` under
+  `--staged`), so `actions/checkout` must run first.
+- `--staged` reads the file from the working tree, not the staged blob. With an unstaged
+  edit on top of a staged one you are checking the former.
 - GitHub renders at most 10 annotations of a level per step. The full list is always in
   the step log.
 - `.astro` markup is scanned with hand-written scanners rather than the Astro compiler.

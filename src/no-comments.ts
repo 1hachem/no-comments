@@ -38,9 +38,85 @@ export interface Suggestion {
 	body: string;
 }
 
+const USAGE = `no-comments [options]
+
+  --extensions <globs>     Space separated git pathspecs to scan.
+  --ignore <regex>         Skip tracked paths matching it. Repeatable.
+  --allow <regex>          Permit comments matching it. Repeatable.
+  --staged                 Scan only files staged for commit, not the whole tree.
+  --fix                    Strip the offending comments in place.
+  --no-fail-on-violations  Report findings but exit zero.
+  --working-directory <dir>
+  --help
+
+Defaults come from no-comments.json, or a "no-comments" key in package.json.
+`;
+
+const BOOLEANS = new Set(['fix', 'staged', 'suggest', 'annotations', 'fail-on-violations']);
+
+export interface Config {
+	extensions?: string | string[];
+	ignore?: string | string[];
+	allow?: string | string[];
+}
+
+let flags = new Map<string, string[]>();
+let config: Config = {};
+
+export function parseArgv(argv: string[]): Map<string, string[]> {
+	const out = new Map<string, string[]>();
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i] ?? '';
+		if (arg === '--help' || arg === '-h') {
+			process.stdout.write(USAGE);
+			process.exit(0);
+		}
+		if (!arg.startsWith('--')) throw new Error(`Unexpected argument \`${arg}\`. See --help.`);
+
+		const eq = arg.indexOf('=');
+		let name = (eq === -1 ? arg.slice(2) : arg.slice(2, eq)).toLowerCase();
+		let value = eq === -1 ? undefined : arg.slice(eq + 1);
+
+		const negated = name.startsWith('no-') && BOOLEANS.has(name.slice(3));
+		if (negated) name = name.slice(3);
+		if (BOOLEANS.has(name) && value === undefined) value = negated ? 'false' : 'true';
+		if (value === undefined) value = argv[++i];
+		if (value === undefined) throw new Error(`Flag \`--${name}\` needs a value.`);
+
+		const seen = out.get(name);
+		if (seen) seen.push(value);
+		else out.set(name, [value]);
+	}
+	return out;
+}
+
+function readJson(file: string): Record<string, unknown> {
+	try {
+		return JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+	} catch (err) {
+		throw new Error(`${file} is not valid JSON: ${err instanceof Error ? err.message : String(err)}`);
+	}
+}
+
+export function loadConfig(): Config {
+	if (existsSync('no-comments.json')) return readJson('no-comments.json') as Config;
+	if (existsSync('package.json')) {
+		const stored = readJson('package.json')['no-comments'];
+		if (stored) return stored as Config;
+	}
+	return {};
+}
+
 function input(name: string): string {
+	const flag = flags.get(name);
+	if (flag) return flag.join('\n');
+
 	const key = `INPUT_${name.toUpperCase().replace(/-/g, '_')}`;
-	return (process.env[key] ?? '').trim();
+	const fromEnv = (process.env[key] ?? '').trim();
+	if (fromEnv) return fromEnv;
+
+	const stored = config[name as keyof Config];
+	return Array.isArray(stored) ? stored.join('\n') : (stored ?? '').trim();
 }
 
 function bool(name: string, fallback: boolean): boolean {
@@ -70,6 +146,16 @@ export function tracked(globs: string[], ignored: RegExp[]): string[] {
 	const out = execFileSync('git', ['ls-files', ...globs], { encoding: 'utf8' });
 	return out
 		.split('\n')
+		.filter(Boolean)
+		.filter(existsSync)
+		.filter((f) => !ignored.some((re) => re.test(f)));
+}
+
+export function staged(globs: string[], ignored: RegExp[]): string[] {
+	const args = ['diff', '--cached', '--name-only', '--diff-filter=ACMR', '-z', '--', ...globs];
+	const out = execFileSync('git', args, { encoding: 'utf8' });
+	return out
+		.split('\0')
 		.filter(Boolean)
 		.filter(existsSync)
 		.filter((f) => !ignored.some((re) => re.test(f)));
@@ -496,15 +582,18 @@ async function postSuggestions(token: string, pr: Pull, all: Suggestion[]): Prom
 }
 
 async function main(): Promise<void> {
+	flags = parseArgv(process.argv.slice(2));
+
 	const dir = input('working-directory');
 	if (dir && dir !== '.') process.chdir(dir);
+	config = loadConfig();
 
 	const globs = (input('extensions') || '*.ts *.tsx *.astro *.css').split(/\s+/).filter(Boolean);
 	const ignored = patterns('ignore');
 	const allowed = [...DEFAULT_DIRECTIVES, ...patterns('allow')];
 	const fix = bool('fix', false);
 	const wantSuggest = bool('suggest', false);
-	const annotations = bool('annotations', true);
+	const annotations = bool('annotations', process.env.GITHUB_ACTIONS === 'true');
 	const failOnViolations = bool('fail-on-violations', true);
 	const token = input('token');
 
@@ -524,7 +613,7 @@ async function main(): Promise<void> {
 		suggest = false;
 	}
 
-	const files = tracked(globs, ignored);
+	const files = bool('staged', false) ? staged(globs, ignored) : tracked(globs, ignored);
 	const offenders: { file: string; found: Found[] }[] = [];
 	const proposed: Suggestion[] = [];
 
@@ -548,7 +637,10 @@ async function main(): Promise<void> {
 	}
 
 	if (fix) {
-		process.stdout.write(`Removed ${total} comments from ${offenders.length} files.\n`);
+		const n = offenders.length;
+		process.stdout.write(
+			`Removed ${total} comment${total === 1 ? '' : 's'} from ${n} file${n === 1 ? '' : 's'}.\n`,
+		);
 		process.stdout.write('Run your formatter to reflow, then review the diff.\n');
 		return;
 	}
@@ -578,8 +670,13 @@ async function main(): Promise<void> {
 	process.stderr.write('\n');
 	process.stderr.write("This repo's code carries no comments, and keeps no design notes\n");
 	process.stderr.write('to move one to. If one of these states a real constraint, put it in\n');
-	process.stderr.write('a name, a type or a test; otherwise re-run this action with\n');
-	process.stderr.write('`fix: true` to strip them, or `suggest: true` to review them inline.\n');
+	if (process.env.GITHUB_ACTIONS === 'true') {
+		process.stderr.write('a name, a type or a test; otherwise re-run this action with\n');
+		process.stderr.write('`fix: true` to strip them, or `suggest: true` to review them inline.\n');
+	} else {
+		process.stderr.write('a name, a type or a test; otherwise re-run with `--fix` to strip\n');
+		process.stderr.write('them, then run your formatter to reflow.\n');
+	}
 
 	if (failOnViolations) process.exit(1);
 }
