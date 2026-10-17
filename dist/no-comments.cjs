@@ -188764,13 +188764,13 @@ ${content}
         }
         Debug.assert(selectedItemIndex !== -1);
         const help = { items: flatMapToMutable(items, identity), applicableSpan, selectedItemIndex, argumentIndex, argumentCount };
-        const selected = help.items[selectedItemIndex];
-        if (selected.isVariadic) {
-          const firstRest = findIndex(selected.parameters, (p) => !!p.isRest);
-          if (-1 < firstRest && firstRest < selected.parameters.length - 1) {
-            help.argumentIndex = selected.parameters.length;
+        const selected2 = help.items[selectedItemIndex];
+        if (selected2.isVariadic) {
+          const firstRest = findIndex(selected2.parameters, (p) => !!p.isRest);
+          if (-1 < firstRest && firstRest < selected2.parameters.length - 1) {
+            help.argumentIndex = selected2.parameters.length;
           } else {
-            help.argumentIndex = Math.min(help.argumentIndex, selected.parameters.length - 1);
+            help.argumentIndex = Math.min(help.argumentIndex, selected2.parameters.length - 1);
           }
         }
         return help;
@@ -210778,9 +210778,12 @@ __export(no_comments_exports, {
   findComments: () => findComments,
   findCssComments: () => findCssComments,
   findMarkupComments: () => findMarkupComments,
+  fromStdin: () => fromStdin,
   loadConfig: () => loadConfig,
+  matchesPathspec: () => matchesPathspec,
   parseArgv: () => parseArgv,
   plan: () => plan,
+  selected: () => selected,
   staged: () => staged,
   strip: () => strip,
   suggestions: () => suggestions,
@@ -210812,6 +210815,8 @@ var USAGE = `no-comments [options]
   --staged                 Scan only files staged for commit, not the whole tree.
   --fix                    Strip the offending comments in place.
   --no-fail-on-violations  Report findings but exit zero.
+  --stdin-file-path <path> Read one file from stdin as if it lived at <path>, and
+                           write it to stdout, stripped when --fix is given.
   --working-directory <dir>
   --help
 
@@ -210887,6 +210892,21 @@ function patterns(name) {
 function tracked(globs, ignored) {
   const out = (0, import_node_child_process.execFileSync)("git", ["ls-files", ...globs], { encoding: "utf8" });
   return out.split("\n").filter(Boolean).filter(import_node_fs.existsSync).filter((f) => !ignored.some((re) => re.test(f)));
+}
+function matchesPathspec(path, spec) {
+  if (!/[*?[]/.test(spec)) {
+    return path === spec || path.startsWith(spec.endsWith("/") ? spec : `${spec}/`);
+  }
+  const source = spec.replace(/[.+^${}()|\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+  return new RegExp(`^${source}$`).test(path);
+}
+function selected(path, globs, ignored) {
+  return globs.some((g) => matchesPathspec(path, g)) && !ignored.some((re) => re.test(path));
+}
+function fromStdin(text, path, globs, ignored, allowed, fix) {
+  if (!selected(path, globs, ignored)) return { output: text, found: [] };
+  const found = findComments(text, path, allowed);
+  return { output: fix ? strip(text, found) : text, found };
 }
 function staged(globs, ignored) {
   const args = ["diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z", "--", ...globs];
@@ -211260,6 +211280,14 @@ ${fence}`
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${await res.text()}`);
   return comments.length;
 }
+function report(file, found, annotations) {
+  for (const f of found) {
+    const excerpt = f.text.length > 70 ? `${f.text.slice(0, 70)}\u2026` : f.text;
+    process.stderr.write(`${file}:${f.line}  ${excerpt}
+`);
+    if (annotations) annotate(file, f.line, excerpt);
+  }
+}
 async function main() {
   flags = parseArgv(process.argv.slice(2));
   const dir = input("working-directory");
@@ -211276,6 +211304,19 @@ async function main() {
   if (fix && wantSuggest) {
     process.stderr.write("Inputs `fix` and `suggest` are mutually exclusive; pick one.\n");
     process.exit(2);
+  }
+  const stdinPath = input("stdin-file-path");
+  if (stdinPath) {
+    if (wantSuggest || bool("staged", false)) {
+      process.stderr.write("`stdin-file-path` reads one file, so it takes neither `staged` nor `suggest`.\n");
+      process.exit(2);
+    }
+    const { output, found } = fromStdin((0, import_node_fs.readFileSync)(0, "utf8"), stdinPath, globs, ignored, allowed, fix);
+    process.stdout.write(output);
+    if (fix || found.length === 0) return;
+    report(stdinPath, found, annotations);
+    if (failOnViolations) process.exit(1);
+    return;
   }
   const pr = pullRequest();
   let suggest = wantSuggest;
@@ -211316,14 +211357,7 @@ async function main() {
     process.stdout.write("Run your formatter to reflow, then review the diff.\n");
     return;
   }
-  for (const { file, found } of offenders) {
-    for (const f of found) {
-      const excerpt = f.text.length > 70 ? `${f.text.slice(0, 70)}\u2026` : f.text;
-      process.stderr.write(`${file}:${f.line}  ${excerpt}
-`);
-      if (annotations) annotate(file, f.line, excerpt);
-    }
-  }
+  for (const { file, found } of offenders) report(file, found, annotations);
   if (suggest && pr) {
     try {
       const posted = await postSuggestions(token, pr, proposed);
@@ -211364,9 +211398,12 @@ if (process.env.NO_COMMENTS_LIB !== "1") {
   findComments,
   findCssComments,
   findMarkupComments,
+  fromStdin,
   loadConfig,
+  matchesPathspec,
   parseArgv,
   plan,
+  selected,
   staged,
   strip,
   suggestions,

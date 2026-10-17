@@ -46,6 +46,8 @@ const USAGE = `no-comments [options]
   --staged                 Scan only files staged for commit, not the whole tree.
   --fix                    Strip the offending comments in place.
   --no-fail-on-violations  Report findings but exit zero.
+  --stdin-file-path <path> Read one file from stdin as if it lived at <path>, and
+                           write it to stdout, stripped when --fix is given.
   --working-directory <dir>
   --help
 
@@ -149,6 +151,31 @@ export function tracked(globs: string[], ignored: RegExp[]): string[] {
 		.filter(Boolean)
 		.filter(existsSync)
 		.filter((f) => !ignored.some((re) => re.test(f)));
+}
+
+export function matchesPathspec(path: string, spec: string): boolean {
+	if (!/[*?[]/.test(spec)) {
+		return path === spec || path.startsWith(spec.endsWith('/') ? spec : `${spec}/`);
+	}
+	const source = spec.replace(/[.+^${}()|\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
+	return new RegExp(`^${source}$`).test(path);
+}
+
+export function selected(path: string, globs: string[], ignored: RegExp[]): boolean {
+	return globs.some((g) => matchesPathspec(path, g)) && !ignored.some((re) => re.test(path));
+}
+
+export function fromStdin(
+	text: string,
+	path: string,
+	globs: string[],
+	ignored: RegExp[],
+	allowed: RegExp[],
+	fix: boolean,
+): { output: string; found: Found[] } {
+	if (!selected(path, globs, ignored)) return { output: text, found: [] };
+	const found = findComments(text, path, allowed);
+	return { output: fix ? strip(text, found) : text, found };
 }
 
 export function staged(globs: string[], ignored: RegExp[]): string[] {
@@ -581,6 +608,14 @@ async function postSuggestions(token: string, pr: Pull, all: Suggestion[]): Prom
 	return comments.length;
 }
 
+function report(file: string, found: Found[], annotations: boolean): void {
+	for (const f of found) {
+		const excerpt = f.text.length > 70 ? `${f.text.slice(0, 70)}…` : f.text;
+		process.stderr.write(`${file}:${f.line}  ${excerpt}\n`);
+		if (annotations) annotate(file, f.line, excerpt);
+	}
+}
+
 async function main(): Promise<void> {
 	flags = parseArgv(process.argv.slice(2));
 
@@ -600,6 +635,20 @@ async function main(): Promise<void> {
 	if (fix && wantSuggest) {
 		process.stderr.write('Inputs `fix` and `suggest` are mutually exclusive; pick one.\n');
 		process.exit(2);
+	}
+
+	const stdinPath = input('stdin-file-path');
+	if (stdinPath) {
+		if (wantSuggest || bool('staged', false)) {
+			process.stderr.write('`stdin-file-path` reads one file, so it takes neither `staged` nor `suggest`.\n');
+			process.exit(2);
+		}
+		const { output, found } = fromStdin(readFileSync(0, 'utf8'), stdinPath, globs, ignored, allowed, fix);
+		process.stdout.write(output);
+		if (fix || found.length === 0) return;
+		report(stdinPath, found, annotations);
+		if (failOnViolations) process.exit(1);
+		return;
 	}
 
 	const pr = pullRequest();
@@ -645,13 +694,7 @@ async function main(): Promise<void> {
 		return;
 	}
 
-	for (const { file, found } of offenders) {
-		for (const f of found) {
-			const excerpt = f.text.length > 70 ? `${f.text.slice(0, 70)}…` : f.text;
-			process.stderr.write(`${file}:${f.line}  ${excerpt}\n`);
-			if (annotations) annotate(file, f.line, excerpt);
-		}
-	}
+	for (const { file, found } of offenders) report(file, found, annotations);
 
 	if (suggest && pr) {
 		try {
