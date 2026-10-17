@@ -6,7 +6,9 @@ import { test } from 'node:test';
 import {
 	diffLines,
 	findComments,
+	fromStdin,
 	loadConfig,
+	matchesPathspec,
 	parseArgv,
 	strip,
 	suggestions,
@@ -176,5 +178,46 @@ test('loadConfig: malformed JSON names the file', () => {
 	} finally {
 		process.chdir(cwd);
 		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test('matchesPathspec: a wildcard spans directories, as git pathspecs do', () => {
+	assert.equal(matchesPathspec('src/deep/a.ts', '*.ts'), true);
+	assert.equal(matchesPathspec('src/a.tsx', '*.ts'), false);
+	assert.equal(matchesPathspec('test/fixtures/a.ts', 'test/fixtures/*.ts'), true);
+});
+
+test('matchesPathspec: a plain spec names a file or a directory', () => {
+	assert.equal(matchesPathspec('src/a.ts', 'src'), true);
+	assert.equal(matchesPathspec('src/a.ts', 'src/a.ts'), true);
+	assert.equal(matchesPathspec('srcs/a.ts', 'src'), false);
+});
+
+test('fromStdin: --fix writes the stripped text', () => {
+	const text = fixture('plain.ts');
+	const { output, found } = fromStdin(text, 'src/plain.ts', ['*.ts'], [], DIRECTIVES, true);
+	assert.deepEqual(
+		found.map((f) => f.line),
+		[1, 4, 6],
+	);
+	assert.equal(output, strip(text, findComments(text, 'plain.ts', DIRECTIVES)));
+});
+
+test('fromStdin: a check passes the text through and reports what it found', () => {
+	const text = fixture('plain.ts');
+	const { output, found } = fromStdin(text, 'src/plain.ts', ['*.ts'], [], DIRECTIVES, false);
+	assert.equal(output, text);
+	assert.equal(found.length, 3);
+});
+
+test('fromStdin: a path outside the extensions or under an ignore passes through untouched', () => {
+	const text = fixture('plain.ts');
+	for (const [path, ignored] of [
+		['src/plain.md', []],
+		['src/_generated/plain.ts', [/\/_generated\//]],
+	] as const) {
+		const { output, found } = fromStdin(text, path, ['*.ts'], [...ignored], DIRECTIVES, true);
+		assert.equal(output, text);
+		assert.deepEqual(found, []);
 	}
 });

@@ -78,14 +78,22 @@ no-comments --extensions '*.ts *.tsx' --ignore '^vendor/' --no-fail-on-violation
 
 ### husky
 
-`.husky/pre-commit` — strip and re-stage, so the commit lands clean:
+`.husky/pre-commit` — strip what is staged and write it back to the index, so the
+commit lands clean and a hunk you left unstaged stays out of it:
 
 ```bash
-mapfile -d '' -t files < <(git diff --cached --name-only --diff-filter=ACMR -z)
-[ "${#files[@]}" -gt 0 ] || exit 0
-pnpm exec no-comments --staged --fix
-git add -- "${files[@]}"
+git diff --cached --name-only --diff-filter=ACMR -z | while IFS= read -r -d '' f; do
+  mode=$(git ls-files -s -- "$f" | cut -d' ' -f1)
+  blob=$(git cat-file blob ":$f" | pnpm exec no-comments --stdin-file-path "$f" --fix |
+    git hash-object -w --stdin --path "$f")
+  git update-index --cacheinfo "$mode,$blob,$f"
+done
 ```
+
+`--stdin-file-path` reads one file from stdin and writes it to stdout, so the tool can
+fix the staged copy of a file rather than the one on disk. `extensions` and `ignore` are
+matched against the path it names, and a path they leave out passes through unchanged.
+Without `--fix` the text passes through too, and a hit is reported and fails the run.
 
 `.husky/pre-push` — the commits already exist, so here it can only report:
 
@@ -138,6 +146,7 @@ input > config file > built-in default**, so CI can still override a single rule
 | `token` | `${{ github.token }}` | Token used to post suggestions. |
 | `annotations` | `true` | Emit `::error` annotations. |
 | `fail-on-violations` | `true` | Set `false` to adopt the check in warn-only mode. |
+| `stdin-file-path` | `''` | Read one file from stdin as if it lived at this path, and write it to stdout. |
 | `working-directory` | `.` | Directory to run from. |
 
 ## Outputs
